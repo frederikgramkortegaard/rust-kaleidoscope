@@ -26,13 +26,14 @@ fn parse_binop_rhs(
 
         // If this operator binds less tightly than the current expression, return LHS
         if tok_prec < expr_prec {
+            
             return Ok(lhs);
         }
 
-        lexer.consume_assert_next_token(op.clone())?; // consume it
+        lexer.consume_assert_next_token(op.clone())?;
 
         // Parse the RHS
-        let mut rhs = Box::new(parse_expression(lexer)?); // assumes parse_primary returns Expr
+        let mut rhs = Box::new(parse_expression(lexer)?);
 
         // Check the next operator's precedence for right-associativity
         let next_prec = get_precedence(&lexer.peek_token());
@@ -47,7 +48,9 @@ fn parse_binop_rhs(
             op,
             right: rhs,
         });
+
     }
+
 }
 
 fn parse_expression(lexer: &mut LexerContext) -> Result<Expr, String> {
@@ -79,7 +82,6 @@ fn parse_expression(lexer: &mut LexerContext) -> Result<Expr, String> {
         _ => Err(String::from("Failed to parse expression")),
     }?;
 
-    // Check for binary operations, if none exists, it just returns the expr we gave in.
     parse_binop_rhs(0, Box::new(expr), lexer).map(|b| *b)
 }
 
@@ -99,11 +101,9 @@ fn parse_top_level_expression(lexer: &mut LexerContext) -> Result<Function, Stri
 fn parse_function_definition(lexer: &mut LexerContext) -> Result<Function, String> {
     let mut v = parse_proto(lexer)?;
     v.body = parse_expression(lexer)?;
-    println!("{:?}", v.body);
     Ok(v)
 }
 fn parse_proto(lexer: &mut LexerContext) -> Result<Function, String> {
-    println!("{:?}", lexer.peek_token());
     let name = lexer.consume_assert_next_token(Token::Identifier(String::new()))?;
     let name_string = match name {
         Token::Identifier(s) => s,
@@ -141,7 +141,6 @@ fn parse_proto(lexer: &mut LexerContext) -> Result<Function, String> {
 pub fn parse(lexer: &mut LexerContext) -> Result<(Vec<Function>, Expr), String> {
     let mut fvec: Vec<Function> = Vec::new();
 
-    println!("here");
     loop {
         let tok = lexer.next_token();
         match tok {
@@ -154,6 +153,7 @@ pub fn parse(lexer: &mut LexerContext) -> Result<(Vec<Function>, Expr), String> 
             }
             Token::Extern => fvec.push(parse_proto(lexer)?),
             Token::Eof => break,
+
             _ => panic!("Unhandled Token in parser: {:?}", tok),
         }
     }

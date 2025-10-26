@@ -81,6 +81,8 @@ impl<'a> LexerContext<'a> {
                 ')' => return Token::RParen,
                 '+' => return Token::Plus,
                 '-' => return Token::Minus,
+                '/' => return Token::Slash,
+                '*' => return Token::Star,
                 _ => {}
             }
 
