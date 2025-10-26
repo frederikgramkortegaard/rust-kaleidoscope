@@ -9,7 +9,7 @@ fn get_precedence(tok: &Token) -> i8 {
     }
 }
 
-/// Parse the RHS of a binary expression, given the current LHS and minimum precedence
+// Parse the RHS of a binary expression, given the current LHS and minimum precedence
 fn parse_binop_rhs(
     expr_prec: i8,
     mut lhs: Box<Expr>,
@@ -18,10 +18,7 @@ fn parse_binop_rhs(
     loop {
         // Peek the next token to see if it's a binary operator
         let op = match lexer.peek_token() {
-            tok @ Token::Plus | tok @ Token::Minus | tok @ Token::Star | tok @ Token::Slash => {
-                lexer.consume_assert_next_token(tok.clone())?; // consume it
-                tok.clone()
-            }
+            tok @ Token::Plus | tok @ Token::Minus | tok @ Token::Star | tok @ Token::Slash => tok,
             _ => return Ok(lhs), // no more operators, return current LHS
         };
 
@@ -31,6 +28,8 @@ fn parse_binop_rhs(
         if tok_prec < expr_prec {
             return Ok(lhs);
         }
+
+        lexer.consume_assert_next_token(op.clone())?; // consume it
 
         // Parse the RHS
         let mut rhs = Box::new(parse_expression(lexer)?); // assumes parse_primary returns Expr
