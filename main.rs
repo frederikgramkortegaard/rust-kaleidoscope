@@ -1,11 +1,14 @@
-pub mod lexer;
 pub mod ast;
+pub mod codegen;
+pub mod lexer;
 pub mod parser;
+use inkwell::{context::Context, values::PointerValue};
 use lexer::LexerContext;
 use parser::parse;
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, ErrorKind, Read};
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -20,7 +23,18 @@ fn main() -> io::Result<()> {
     }
 
     let mut lexer = LexerContext::new(&input);
-    let _ = parse(&mut lexer);
 
+    let context = Context::create();
+    let mut module = context.create_module("main");
+    let mut builder = context.create_builder();
+    let mut vars: HashMap<String, PointerValue> = HashMap::new();
+    if let Ok(funcs) = parse(&mut lexer) {
+        for f in funcs {
+            f.codegen(&context, &mut builder, &mut module, &mut vars)
+                .map_err(|e: String| io::Error::new(ErrorKind::Other, e))?;
+        }
+    }
+
+    println!("{}", module.print_to_string().to_string());
     Ok(())
 }

@@ -13,6 +13,7 @@ pub enum Token {
     Minus,
     Star,
     Slash,
+    Comma,
 }
 
 pub struct LexerContext<'a> {
@@ -56,6 +57,15 @@ impl<'a> LexerContext<'a> {
             Err(format!("Expected {:?}, got {:?}", expected, tok))
         }
     }
+    pub fn consume_opt_next_token(&mut self, expected: Token) -> Result<Option<Token>, String> {
+        let tok = self.peek_token();
+        if std::mem::discriminant(&tok) == std::mem::discriminant(&expected) {
+            let t = self.next_token();
+            Ok(Some(t))
+        } else {
+            Ok(None)
+        }
+    }
 
     pub fn peek_token(&mut self) -> Token {
         let cursor_state = self.cursor;
@@ -80,6 +90,7 @@ impl<'a> LexerContext<'a> {
                 '(' => return Token::LParen,
                 ')' => return Token::RParen,
                 '+' => return Token::Plus,
+                ',' => return Token::Comma,
                 '-' => return Token::Minus,
                 '/' => return Token::Slash,
                 '*' => return Token::Star,
@@ -88,13 +99,12 @@ impl<'a> LexerContext<'a> {
 
             // Numbers
             if cchar.is_ascii_digit() {
-                let mut buf = String::from(cchar);
+                let start = self.cursor - 1;
                 let mut _rc = false;
                 while let Some(cchar) = self.next_char() {
                     if cchar.is_ascii_digit() {
-                        buf.push(cchar);
+                        // continue
                     } else if cchar == '.' && !_rc {
-                        buf.push(cchar);
                         _rc = true;
                     } else {
                         self.backtrack(cchar.len_utf8());
@@ -102,26 +112,27 @@ impl<'a> LexerContext<'a> {
                     }
                 }
 
-                let nval = buf.trim().parse::<f64>().unwrap();
+                let nval = self.input[start..self.cursor].parse::<f64>().unwrap();
                 return Token::Number(nval);
             }
 
             // Identifiers
             if cchar.is_alphabetic() {
-                let mut buf = String::from(cchar);
+                let start = self.cursor - 1;
                 while let Some(cchar) = self.next_char() {
-                    if cchar.is_alphanumeric() {
-                        buf.push(cchar);
-                    } else {
+                    if !cchar.is_alphanumeric() {
                         self.backtrack(1);
                         break;
                     }
                 }
 
-                return match buf.as_str() {
+                return match &self.input[start..self.cursor] {
                     "extern" => Token::Extern,
                     "def" => Token::Def,
-                    _ => Token::Identifier(buf),
+                    ident => {
+                        println!("{:?}", ident);
+                        Token::Identifier(ident.to_string())
+                    }
                 };
             }
         }

@@ -1,4 +1,3 @@
-
 use crate::lexer::Token;
 
 #[derive(Debug)]
@@ -23,5 +22,3 @@ pub struct Function {
     pub args: Vec<String>,
     pub body: Expr,
 }
-
-
