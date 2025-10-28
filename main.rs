@@ -2,7 +2,7 @@ pub mod ast;
 pub mod codegen;
 pub mod lexer;
 pub mod parser;
-use inkwell::{context::Context, values::PointerValue};
+use inkwell::{context::Context, values::BasicValueEnum, values::PointerValue};
 use lexer::LexerContext;
 use parser::parse;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ fn main() -> io::Result<()> {
     let context = Context::create();
     let mut module = context.create_module("main");
     let mut builder = context.create_builder();
-    let mut vars: HashMap<String, PointerValue> = HashMap::new();
+    let mut vars: HashMap<String, BasicValueEnum> = HashMap::new();
     if let Ok(funcs) = parse(&mut lexer) {
         for f in funcs {
             f.codegen(&context, &mut builder, &mut module, &mut vars)
