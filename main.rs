@@ -42,8 +42,11 @@ fn main() -> io::Result<()> {
         for f in funcs {
             if f.name == "_top_level_expr" {
                 // Codegen top-level expression directly into main
-                if let Some(result) = f.body.codegen(&context, &mut builder, &module, &mut vars)
-                    .map_err(|e: String| io::Error::new(ErrorKind::Other, e))? {
+                if let Some(result) = f
+                    .body
+                    .codegen(&context, &mut builder, &module, &mut vars)
+                    .map_err(|e: String| io::Error::new(ErrorKind::Other, e))?
+                {
                     last_result = Some(result);
                 }
             } else {
@@ -60,13 +63,15 @@ fn main() -> io::Result<()> {
     // Add return statement to main with the last result
     builder.position_at_end(main_entry);
     if let Some(ret_val) = last_result {
-        builder.build_return(Some(&ret_val))
-            .map_err(|e| io::Error::new(ErrorKind::Other, format!("Failed to build return: {}", e)))?;
+        builder.build_return(Some(&ret_val)).map_err(|e| {
+            io::Error::new(ErrorKind::Other, format!("Failed to build return: {}", e))
+        })?;
     } else {
         // No top-level expressions, return 0.0
         let zero = f64_type.const_float(0.0);
-        builder.build_return(Some(&zero))
-            .map_err(|e| io::Error::new(ErrorKind::Other, format!("Failed to build return: {}", e)))?;
+        builder.build_return(Some(&zero)).map_err(|e| {
+            io::Error::new(ErrorKind::Other, format!("Failed to build return: {}", e))
+        })?;
     }
 
     println!("{}", module.print_to_string().to_string());
