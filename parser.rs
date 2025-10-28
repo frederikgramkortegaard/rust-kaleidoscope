@@ -15,36 +15,29 @@ fn parse_binop_rhs(
     mut lhs: Box<Expr>,
     lexer: &mut LexerContext,
 ) -> Result<Box<Expr>, String> {
-    println!(";hs{:?}", lhs);
     loop {
-        println!("1");
         // Peek the next token to see if it's a binary operator
         let op = match lexer.peek_token() {
             tok @ Token::Plus | tok @ Token::Minus | tok @ Token::Star | tok @ Token::Slash => tok,
             _ => return Ok(lhs), // no more operators, return current LHS
         };
 
-        println!("ss{:?}", op);
         let tok_prec = get_precedence(&op);
 
         // If this operator binds less tightly than the current expression, return LHS
         if tok_prec < expr_prec {
-            println!("qq{:?}", op);
             return Ok(lhs);
         }
 
         lexer.consume_assert_next_token(op.clone())?;
 
         // Parse the RHS
-        println!("yy{:?}", lexer.peek_token());
         let mut rhs = Box::new(parse_expression(lexer)?);
-        println!("tt{:?}", lexer.peek_token());
 
         // Check the next operator's precedence for right-associativity
         let next_prec = get_precedence(&lexer.peek_token());
 
         if tok_prec < next_prec {
-            println!("vv{:?}", op);
             rhs = parse_binop_rhs(tok_prec + 1, rhs, lexer)?;
         }
 
@@ -54,8 +47,6 @@ fn parse_binop_rhs(
             op,
             right: rhs,
         });
-
-        println!("..{:?}", lhs);
     }
 }
 
@@ -106,7 +97,6 @@ fn parse_expression(lexer: &mut LexerContext) -> Result<Expr, String> {
         _ => Err(String::from("Failed to parse expression")),
     }?;
 
-    println!("{:?}", expr);
     parse_binop_rhs(0, Box::new(expr), lexer).map(|b| *b)
 }
 
@@ -114,23 +104,29 @@ fn parse_top_level_expression(lexer: &mut LexerContext) -> Result<Function, Stri
     // @NOTE : This is a horrible way to handle top-level expressions, but since this is following
     // Kaleidescope https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/LangImpl02.html at least
     // semi-truthfully, that's how we're going to do it as well.
+
     let f = Function {
         name: String::from("_top_level_expr"),
         args: Vec::new(),
         body: parse_expression(lexer)?,
     };
+
     println!("Parsed top level expr {:?}", f);
     Ok(f)
 }
 
 fn parse_function_definition(lexer: &mut LexerContext) -> Result<Function, String> {
+    lexer.consume_opt_next_token(Token::Def)?;
     let mut v = parse_proto(lexer)?;
     v.body = parse_expression(lexer)?;
-    println!("{:?}", v.body);
     Ok(v)
 }
+
+fn parse_extern(lexer: &mut LexerContext) -> Result<Function, String> {
+    lexer.consume_opt_next_token(Token::Extern)?;
+    parse_proto(lexer)
+}
 fn parse_proto(lexer: &mut LexerContext) -> Result<Function, String> {
-    println!("{:?}", lexer.peek_token());
     let name = lexer.consume_assert_next_token(Token::Identifier(String::new()))?;
     let name_string = match name {
         Token::Identifier(s) => s,
@@ -165,24 +161,18 @@ fn parse_proto(lexer: &mut LexerContext) -> Result<Function, String> {
     Ok(f)
 }
 
-pub fn parse(lexer: &mut LexerContext) -> Result<(Vec<Function>), String> {
+pub fn parse(lexer: &mut LexerContext) -> Result<Vec<Function>, String> {
     let mut fvec: Vec<Function> = Vec::new();
 
-    println!("here");
     loop {
-        let tok = lexer.next_token();
+        let tok = lexer.peek_token();
         match tok {
-            Token::Def => {
-                fvec.push(
-                    parse_function_definition(lexer).map_err(|e| {
-                        format!("Failed to parse function at token {:?}: {}", tok, e)
-                    })?,
-                );
-            }
-            Token::Extern => fvec.push(parse_proto(lexer)?),
+            Token::Def => fvec.push(parse_function_definition(lexer)?),
+            Token::Extern => fvec.push(parse_extern(lexer)?),
             Token::Eof => break,
 
-            _ => panic!("Unhandled Token in parser: {:?}", tok),
+            // Top level expression
+            _ => fvec.push(parse_top_level_expression(lexer)?),
         }
     }
     Ok(fvec)

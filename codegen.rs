@@ -1,8 +1,10 @@
 use crate::ast::{Expr, Function};
 use crate::lexer::Token;
+use inkwell::llvm_sys::core::LLVMDeleteFunction;
 use inkwell::{builder::Builder, context::Context, module::Module, values::BasicValueEnum};
 use std::collections::HashMap;
 
+use inkwell::values::AsValueRef;
 pub type CGResult<'ctx> = Result<Option<BasicValueEnum<'ctx>>, String>;
 
 impl Function {
@@ -14,7 +16,12 @@ impl Function {
         vars: &mut HashMap<String, BasicValueEnum<'lctx>>,
     ) -> Result<(), String> {
         // Check if we already have a function defined with this name
-        if module.get_function(self.name.as_str()).is_some() {
+        if let Some(func) = module.get_function(self.name.as_str()) {
+            if self.name == "_top_level_expr" {
+                unsafe {
+                    LLVMDeleteFunction(func.as_value_ref());
+                }
+            }
             return Ok(());
         }
 
@@ -56,10 +63,7 @@ impl Expr {
     ) -> CGResult<'lctx> {
         match self {
             Expr::Number(value) => Ok(Some(ctx.f64_type().const_float(*value).into())),
-            Expr::Variable(name) => {
-                let v = vars.get(name).cloned().unwrap();
-                Ok(Some(v))
-            }
+            Expr::Variable(name) => Ok(Some(vars.get(name).cloned().unwrap())),
             Expr::BinOp { left, op, right } => {
                 let lhs = left
                     .codegen(ctx, builder, vars)?

@@ -10,3 +10,6 @@ def baz()
 
 def fizz(buzz)
   2 + buzz
+
+
+3 + 2

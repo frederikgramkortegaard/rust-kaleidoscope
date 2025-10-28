@@ -2,7 +2,7 @@ pub mod ast;
 pub mod codegen;
 pub mod lexer;
 pub mod parser;
-use inkwell::{context::Context, values::BasicValueEnum, values::PointerValue};
+use inkwell::{context::Context, values::BasicValueEnum};
 use lexer::LexerContext;
 use parser::parse;
 use std::collections::HashMap;
