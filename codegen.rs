@@ -38,7 +38,7 @@ impl Function {
         let entry = context.append_basic_block(func, "entry");
         builder.position_at_end(entry);
 
-        if let Some(l) = self.body.codegen(context, builder, module, vars)? {
+        if let Some(l) = self.body.codegen(context, builder, vars)? {
             builder.build_return(Some(&l)).unwrap();
         } else {
             builder.build_return(None).unwrap();
