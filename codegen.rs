@@ -1,10 +1,16 @@
-use crate::ast::{Expr, Function};
-use crate::lexer::Token;
-use inkwell::llvm_sys::core::LLVMDeleteFunction;
-use inkwell::{builder::Builder, context::Context, module::Module, values::BasicValueEnum};
+// Standard library
 use std::collections::HashMap;
 
-use inkwell::values::AsValueRef;
+// Our crate
+use crate::ast::{Expr, Function};
+use crate::lexer::Token;
+
+// Inkwell
+use inkwell::{
+    builder::Builder, context::Context, module::Module, values::BasicMetadataValueEnum,
+    values::BasicValueEnum, values::FloatValue, values::FunctionValue,
+};
+
 pub type CGResult<'ctx> = Result<Option<BasicValueEnum<'ctx>>, String>;
 
 impl Function {
@@ -15,40 +21,42 @@ impl Function {
         module: &mut Module<'lctx>,
         vars: &mut HashMap<String, BasicValueEnum<'lctx>>,
     ) -> Result<(), String> {
-        // Check if we already have a function defined with this name
-        if let Some(func) = module.get_function(self.name.as_str()) {
-            if self.name == "_top_level_expr" {
-                unsafe {
-                    LLVMDeleteFunction(func.as_value_ref());
-                }
-            }
+        // Check if function already exists (skip redefinition)
+        if module.get_function(self.name.as_str()).is_some() {
             return Ok(());
         }
 
+        // Create function signature
         let f64 = context.f64_type();
-        let param_types: Vec<inkwell::types::BasicMetadataTypeEnum> =
-            vec![f64.into(); self.args.len()];
+        let param_types = vec![f64.into(); self.args.len()];
 
         let fn_ty = f64.fn_type(&param_types, false);
         let func = module.add_function(self.name.as_str(), fn_ty, None);
+
+        // Set up parameters in the symbol table
         vars.clear();
         for (p, name) in func.get_param_iter().zip(self.args.iter()) {
             p.set_name(name);
             vars.insert(name.clone(), p);
         }
 
-        // Externs, there is no body to generate code for
+        // Externs have no body - just the function declaration, so we're done
         if matches!(self.body, Expr::None) {
             return Ok(());
         }
-        // create a block inside *this* function
+
+        // Generate function body
         let entry = context.append_basic_block(func, "entry");
         builder.position_at_end(entry);
 
-        if let Some(l) = self.body.codegen(context, builder, vars)? {
-            builder.build_return(Some(&l)).unwrap();
+        if let Some(ret_val) = self.body.codegen(context, builder, module, vars)? {
+            builder
+                .build_return(Some(&ret_val))
+                .map_err(|e| format!("Failed to build return: {}", e))?;
         } else {
-            builder.build_return(None).unwrap();
+            builder
+                .build_return(None)
+                .map_err(|e| format!("Failed to build empty return: {}", e))?;
         }
         Ok(())
     }
@@ -57,33 +65,71 @@ impl Function {
 impl Expr {
     pub fn codegen<'lctx>(
         &self,
-        ctx: &'lctx Context,
+        context: &'lctx Context,
         builder: &mut Builder<'lctx>,
+        module: &Module<'lctx>,
         vars: &mut HashMap<String, BasicValueEnum<'lctx>>,
     ) -> CGResult<'lctx> {
         match self {
-            Expr::Number(value) => Ok(Some(ctx.f64_type().const_float(*value).into())),
-            Expr::Variable(name) => Ok(Some(vars.get(name).cloned().unwrap())),
+            Expr::Call { identifier, args } => {
+                let callee: FunctionValue = module.get_function(identifier.as_str()).unwrap();
+                let mut cargs: Vec<BasicMetadataValueEnum> = Vec::new();
+                for arg in args {
+                    let val = arg
+                        .codegen(context, builder, module, vars)?
+                        .ok_or_else(|| {
+                            format!(
+                                "Can not codegen argument in call to function: {:?}, {:?}",
+                                arg,
+                                identifier.as_str()
+                            )
+                        })?
+                        .into_float_value();
+                    cargs.push(val.into());
+                }
+                let call = builder.build_call(callee, &cargs, "calltmp").unwrap();
+                let ret: FloatValue = call.try_as_basic_value().left().unwrap().into_float_value();
+                Ok(Some(ret.into()))
+            }
+            Expr::Number(value) => Ok(Some(context.f64_type().const_float(*value).into())),
+            Expr::Variable(name) => {
+                let val = vars
+                    .get(name)
+                    .ok_or_else(|| format!("Unknown variable: {}", name))?;
+                Ok(Some(*val))
+            }
             Expr::BinOp { left, op, right } => {
                 let lhs = left
-                    .codegen(ctx, builder, vars)?
-                    .unwrap()
+                    .codegen(context, builder, module, vars)?
+                    .ok_or_else(|| "Left operand produced no value".to_string())?
                     .into_float_value();
                 let rhs = right
-                    .codegen(ctx, builder, vars)?
-                    .unwrap()
+                    .codegen(context, builder, module, vars)?
+                    .ok_or_else(|| "Right operand produced no value".to_string())?
                     .into_float_value();
-                let sum = match op {
-                    Token::Plus => builder.build_float_add(lhs, rhs, "addtmp").unwrap().into(),
-                    Token::Minus => builder.build_float_sub(lhs, rhs, "subtmp").unwrap().into(),
-                    Token::Star => builder.build_float_mul(lhs, rhs, "multmp").unwrap().into(),
-                    Token::Slash => builder.build_float_div(lhs, rhs, "divtmp").unwrap().into(),
-                    _ => panic!("Unhandled operator {:?}", op),
+                let result = match op {
+                    Token::Plus => builder
+                        .build_float_add(lhs, rhs, "addtmp")
+                        .map_err(|e| format!("Failed to build add: {}", e))?
+                        .into(),
+                    Token::Minus => builder
+                        .build_float_sub(lhs, rhs, "subtmp")
+                        .map_err(|e| format!("Failed to build sub: {}", e))?
+                        .into(),
+                    Token::Star => builder
+                        .build_float_mul(lhs, rhs, "multmp")
+                        .map_err(|e| format!("Failed to build mul: {}", e))?
+                        .into(),
+                    Token::Slash => builder
+                        .build_float_div(lhs, rhs, "divtmp")
+                        .map_err(|e| format!("Failed to build div: {}", e))?
+                        .into(),
+                    _ => return Err(format!("Unhandled operator: {:?}", op)),
                 };
-                Ok(Some(sum))
+                Ok(Some(result))
             }
 
-            _ => panic!("Unhandled; {:?}", self),
+            _ => Err(format!("Unhandled expression: {:?}", self)),
         }
     }
 }

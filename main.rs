@@ -28,11 +28,45 @@ fn main() -> io::Result<()> {
     let mut module = context.create_module("main");
     let mut builder = context.create_builder();
     let mut vars: HashMap<String, BasicValueEnum> = HashMap::new();
+
+    // Create main() function upfront to hold all top-level expressions
+    let f64_type = context.f64_type();
+    let main_fn_type = f64_type.fn_type(&[], false);
+    let main_func = module.add_function("main", main_fn_type, None);
+    let main_entry = context.append_basic_block(main_func, "entry");
+    builder.position_at_end(main_entry);
+
+    let mut last_result: Option<BasicValueEnum> = None;
+
     if let Ok(funcs) = parse(&mut lexer) {
         for f in funcs {
-            f.codegen(&context, &mut builder, &mut module, &mut vars)
-                .map_err(|e: String| io::Error::new(ErrorKind::Other, e))?;
+            if f.name == "_top_level_expr" {
+                // Codegen top-level expression directly into main
+                if let Some(result) = f.body.codegen(&context, &mut builder, &module, &mut vars)
+                    .map_err(|e: String| io::Error::new(ErrorKind::Other, e))? {
+                    last_result = Some(result);
+                }
+            } else {
+                // Codegen regular function (this repositions the builder)
+                f.codegen(&context, &mut builder, &mut module, &mut vars)
+                    .map_err(|e: String| io::Error::new(ErrorKind::Other, e))?;
+
+                // Reposition builder back to main's entry for next top-level expr
+                builder.position_at_end(main_entry);
+            }
         }
+    }
+
+    // Add return statement to main with the last result
+    builder.position_at_end(main_entry);
+    if let Some(ret_val) = last_result {
+        builder.build_return(Some(&ret_val))
+            .map_err(|e| io::Error::new(ErrorKind::Other, format!("Failed to build return: {}", e)))?;
+    } else {
+        // No top-level expressions, return 0.0
+        let zero = f64_type.const_float(0.0);
+        builder.build_return(Some(&zero))
+            .map_err(|e| io::Error::new(ErrorKind::Other, format!("Failed to build return: {}", e)))?;
     }
 
     println!("{}", module.print_to_string().to_string());

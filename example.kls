@@ -8,8 +8,10 @@ def bar()
 def baz()
   999 /2 *1 + 2
 
+3 + 2
+
 def fizz(buzz)
   2 + buzz
 
 
-3 + 2
+7 / fizz(2)
