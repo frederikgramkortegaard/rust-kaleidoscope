@@ -31,8 +31,8 @@ fn parse_binop_rhs(
 
         lexer.consume_assert_next_token(op.clone())?;
 
-        // Parse the RHS
-        let mut rhs = Box::new(parse_expression(lexer)?);
+        // Parse the primary RHS (just the next term, not a full expression)
+        let mut rhs = Box::new(parse_primary(lexer)?);
 
         // Check the next operator's precedence for right-associativity
         let next_prec = get_precedence(&lexer.peek_token());
@@ -50,12 +50,12 @@ fn parse_binop_rhs(
     }
 }
 
-fn parse_expression(lexer: &mut LexerContext) -> Result<Expr, String> {
+// Parse primary expressions: identifiers, numbers, parenthesized expressions, function calls
+fn parse_primary(lexer: &mut LexerContext) -> Result<Expr, String> {
     let token = lexer.next_token();
 
-    // Handle some of the basic experssion types that don't need their own helper methods parsing
-    let expr = match token {
-        // Parens Expression, eat it.
+    match token {
+        // Parens Expression - parse full expression inside
         Token::LParen => parse_expression(lexer),
 
         // Number Literals
@@ -94,9 +94,13 @@ fn parse_expression(lexer: &mut LexerContext) -> Result<Expr, String> {
             }
         }
 
-        _ => Err(String::from("Failed to parse expression")),
-    }?;
+        _ => Err(String::from("Failed to parse primary expression")),
+    }
+}
 
+// Parse full expressions with binary operators
+fn parse_expression(lexer: &mut LexerContext) -> Result<Expr, String> {
+    let expr = parse_primary(lexer)?;
     parse_binop_rhs(0, Box::new(expr), lexer).map(|b| *b)
 }
 
