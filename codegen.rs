@@ -304,7 +304,9 @@ impl Expr {
             }
 
             Expr::Call { identifier, args } => {
-                let callee: FunctionValue = cg.module.get_function(identifier.as_str())
+                let callee: FunctionValue = cg
+                    .module
+                    .get_function(identifier.as_str())
                     .ok_or_else(|| format!("Unknown function: {}", identifier))?;
                 let mut cargs: Vec<BasicMetadataValueEnum> = Vec::new();
                 for arg in args {
