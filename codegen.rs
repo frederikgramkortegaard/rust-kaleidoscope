@@ -71,6 +71,90 @@ impl Expr {
         vars: &mut HashMap<String, BasicValueEnum<'lctx>>,
     ) -> CGResult<'lctx> {
         match self {
+            Expr::For {
+                ident,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                // Emit start value
+                let start_val = start.codegen(context, builder, module, vars)?.unwrap();
+
+                // Get current function and preheader block
+                let f = builder.get_insert_block().unwrap().get_parent().unwrap();
+                let preheader_bb = builder.get_insert_block().unwrap();
+
+                // Create loop block and branch to it
+                let loop_bb = context.append_basic_block(f, "loop");
+                builder.build_unconditional_branch(loop_bb)
+                    .map_err(|e| format!("Failed to branch to loop: {}", e))?;
+
+                // Position in loop block, then create PHI
+                builder.position_at_end(loop_bb);
+                let phi = builder.build_phi(context.f64_type(), ident).unwrap();
+                phi.add_incoming(&[(&start_val, preheader_bb)]);
+
+                // Shadow the variable
+                let old_val = vars.get(ident).cloned();
+                vars.insert(ident.clone(), phi.as_basic_value());
+
+                // Generate body
+                body.codegen(context, builder, module, vars)?;
+
+                // Compute step value
+                let step_val = match step {
+                    Some(s) => s.codegen(context, builder, module, vars)?.unwrap(),
+                    None => context.f64_type().const_float(1.0).into(),
+                };
+
+                // Compute next iteration value
+                let next_var = builder
+                    .build_float_add(
+                        phi.as_basic_value().into_float_value(),
+                        step_val.into_float_value(),
+                        "nextvar"
+                    )
+                    .map_err(|e| format!("Failed to build nextvar: {}", e))?;
+
+                // Compute end condition
+                let end_cond_val = end.codegen(context, builder, module, vars)?.unwrap();
+                let end_cond = builder
+                    .build_float_compare(
+                        inkwell::FloatPredicate::ONE,
+                        end_cond_val.into_float_value(),
+                        context.f64_type().const_float(0.0),
+                        "loopcond",
+                    )
+                    .map_err(|e| format!("Failed to build endcond: {}", e))?;
+
+                // Get the block after body
+                let loop_end_bb = builder.get_insert_block().unwrap();
+
+                // Create after-loop block
+                let after_bb = context.append_basic_block(f, "afterloop");
+
+                // Conditional branch
+                builder.build_conditional_branch(end_cond, loop_bb, after_bb)
+                    .map_err(|e| format!("Failed to build cond branch: {}", e))?;
+
+                // Add backedge to PHI
+                phi.add_incoming(&[(&next_var, loop_end_bb)]);
+
+                // Position in after block
+                builder.position_at_end(after_bb);
+
+                // Restore old variable
+                if let Some(old) = old_val {
+                    vars.insert(ident.clone(), old);
+                } else {
+                    vars.remove(ident);
+                }
+
+                // For loops always return 0.0
+                Ok(Some(context.f64_type().const_float(0.0).into()))
+            }
+
             Expr::If {
                 condition,
                 then,
@@ -170,6 +254,24 @@ impl Expr {
                         .build_float_div(lhs, rhs, "divtmp")
                         .map_err(|e| format!("Failed to build div: {}", e))?
                         .into(),
+                    Token::Less => {
+                        let cmp = builder
+                            .build_float_compare(inkwell::FloatPredicate::ULT, lhs, rhs, "cmptmp")
+                            .map_err(|e| format!("Failed to build less than: {}", e))?;
+                        builder
+                            .build_unsigned_int_to_float(cmp, context.f64_type(), "booltmp")
+                            .map_err(|e| format!("Failed to convert bool to float: {}", e))?
+                            .into()
+                    }
+                    Token::Greater => {
+                        let cmp = builder
+                            .build_float_compare(inkwell::FloatPredicate::UGT, lhs, rhs, "cmptmp")
+                            .map_err(|e| format!("Failed to build greater than: {}", e))?;
+                        builder
+                            .build_unsigned_int_to_float(cmp, context.f64_type(), "booltmp")
+                            .map_err(|e| format!("Failed to convert bool to float: {}", e))?
+                            .into()
+                    }
                     _ => return Err(format!("Unhandled operator: {:?}", op)),
                 };
                 Ok(Some(result))

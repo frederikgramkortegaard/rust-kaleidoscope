@@ -14,11 +14,14 @@ pub enum Token {
     Star,
     Slash,
     Comma,
+    Less,
+    Greater,
     If,
     Else,
     Then,
     For,
     In,
+    Assign,
 }
 
 pub struct LexerContext<'a> {
@@ -99,6 +102,9 @@ impl<'a> LexerContext<'a> {
                 '-' => return Token::Minus,
                 '/' => return Token::Slash,
                 '*' => return Token::Star,
+                '>' => return Token::Greater,
+                '<' => return Token::Less,
+                '=' => return Token::Assign,
                 _ => {}
             }
 

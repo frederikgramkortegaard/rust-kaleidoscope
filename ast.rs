@@ -19,9 +19,10 @@ pub enum Expr {
         els: Box<Expr>
     },
     For {
+        ident: String,
         start: Box<Expr>,
         end: Box<Expr>,
-        step: Box<Expr>,
+        step: Option<Box<Expr>>,
         body: Box<Expr>,
     },
     None,

@@ -3,6 +3,7 @@ use crate::lexer::{LexerContext, Token};
 
 fn get_precedence(tok: &Token) -> i8 {
     match tok {
+        Token::Less | Token::Greater => 5,
         Token::Plus | Token::Minus => 10,
         Token::Star | Token::Slash => 20,
         _ => -1,
@@ -18,7 +19,12 @@ fn parse_binop_rhs(
     loop {
         // Peek the next token to see if it's a binary operator
         let op = match lexer.peek_token() {
-            tok @ Token::Plus | tok @ Token::Minus | tok @ Token::Star | tok @ Token::Slash => tok,
+            tok @ Token::Plus
+            | tok @ Token::Minus
+            | tok @ Token::Star
+            | tok @ Token::Slash
+            | tok @ Token::Less
+            | tok @ Token::Greater => tok,
             _ => return Ok(lhs), // no more operators, return current LHS
         };
 
@@ -125,6 +131,39 @@ fn parse_primary(lexer: &mut LexerContext) -> Result<Expr, String> {
                 els,
             })
         }
+
+        Token::For => {
+            println!("ooo  {:?}", lexer.peek_token());
+            lexer.consume_assert_next_token(Token::For)?;
+            println!("uuu  {:?}", lexer.peek_token());
+
+            let ident: String = match parse_expression(lexer)? {
+                Expr::Variable(s) => s,
+                x => Err(format!("Expected Identifier in for-loop but got {:?}", x))?,
+            };
+
+            lexer.consume_assert_next_token(Token::Assign)?;
+            let start = Box::new(parse_expression(lexer)?);
+            lexer.consume_assert_next_token(Token::Comma)?;
+            let end = Box::new(parse_expression(lexer)?);
+
+            let mut step: Option<Box<Expr>> = None;
+            if lexer.peek_token() == Token::Comma {
+                lexer.consume_assert_next_token(Token::Comma)?;
+                step = Some(Box::new(parse_expression(lexer)?));
+            }
+
+            lexer.consume_assert_next_token(Token::In)?;
+            let body = Box::new(parse_expression(lexer)?);
+            Ok(Expr::For {
+                ident,
+                start,
+                end,
+                step,
+                body,
+            })
+        }
+
         _ => Err(String::from("Failed to parse primary expression")),
     }
 }
