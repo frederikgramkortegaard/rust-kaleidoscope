@@ -284,11 +284,13 @@ impl Expr {
                 cg.builder.position_at_end(thenbb);
                 let then_val = then.codegen(cg)?.unwrap();
                 cg.builder.build_unconditional_branch(mergebb).unwrap();
+                let then_end_bb = cg.builder.get_insert_block().unwrap();
 
                 // Else Block
                 cg.builder.position_at_end(elsebb);
                 let els_val = els.codegen(cg)?.unwrap();
                 cg.builder.build_unconditional_branch(mergebb).unwrap();
+                let else_end_bb = cg.builder.get_insert_block().unwrap();
 
                 // Merge Bloock
                 cg.builder.position_at_end(mergebb);
@@ -296,13 +298,14 @@ impl Expr {
                     .builder
                     .build_phi(cg.context.f64_type(), "iftmp")
                     .unwrap();
-                phi.add_incoming(&[(&then_val, thenbb), (&els_val, elsebb)]);
+                phi.add_incoming(&[(&then_val, then_end_bb), (&els_val, else_end_bb)]);
 
                 Ok(Some(phi.as_basic_value()))
             }
 
             Expr::Call { identifier, args } => {
-                let callee: FunctionValue = cg.module.get_function(identifier.as_str()).unwrap();
+                let callee: FunctionValue = cg.module.get_function(identifier.as_str())
+                    .ok_or_else(|| format!("Unknown function: {}", identifier))?;
                 let mut cargs: Vec<BasicMetadataValueEnum> = Vec::new();
                 for arg in args {
                     let val = arg
