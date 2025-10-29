@@ -2,13 +2,19 @@ pub mod ast;
 pub mod codegen;
 pub mod lexer;
 pub mod parser;
-use inkwell::{context::Context, values::BasicValueEnum};
+use inkwell::{context::Context, values::BasicValueEnum, OptimizationLevel};
 use lexer::LexerContext;
 use parser::parse;
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
-use std::io::{self, ErrorKind, Read};
+use std::io::{self, ErrorKind, Read, Write};
+
+extern "C" fn putchard(x: f64) -> f64 {
+    print!("{}", x as u8 as char);
+    io::stdout().flush().unwrap();
+    0.0
+}
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -26,6 +32,17 @@ fn main() -> io::Result<()> {
 
     let context = Context::create();
     let mut module = context.create_module("main");
+    let execution_engine = module
+        .create_jit_execution_engine(OptimizationLevel::None)
+        .map_err(|e| io::Error::new(ErrorKind::Other, format!("Failed to create JIT: {}", e)))?;
+
+    // Register external functions for JIT
+    execution_engine.add_global_mapping(&module.add_function(
+        "putchard",
+        context.f64_type().fn_type(&[context.f64_type().into()], false),
+        None
+    ), putchard as usize);
+
     let mut builder = context.create_builder();
     let mut vars: HashMap<String, BasicValueEnum> = HashMap::new();
 
@@ -75,5 +92,14 @@ fn main() -> io::Result<()> {
     }
 
     println!("{}", module.print_to_string().to_string());
+
+    // Execute the main function via JIT
+    unsafe {
+        let main_fn = execution_engine.get_function::<unsafe extern "C" fn() -> f64>("main")
+            .map_err(|e| io::Error::new(ErrorKind::Other, format!("Failed to get main: {}", e)))?;
+        let result = main_fn.call();
+        println!("\nResult: {}", result);
+    }
+
     Ok(())
 }

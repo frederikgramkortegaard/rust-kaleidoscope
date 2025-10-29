@@ -87,7 +87,8 @@ impl Expr {
 
                 // Create loop block and branch to it
                 let loop_bb = context.append_basic_block(f, "loop");
-                builder.build_unconditional_branch(loop_bb)
+                builder
+                    .build_unconditional_branch(loop_bb)
                     .map_err(|e| format!("Failed to branch to loop: {}", e))?;
 
                 // Position in loop block, then create PHI
@@ -113,7 +114,7 @@ impl Expr {
                     .build_float_add(
                         phi.as_basic_value().into_float_value(),
                         step_val.into_float_value(),
-                        "nextvar"
+                        "nextvar",
                     )
                     .map_err(|e| format!("Failed to build nextvar: {}", e))?;
 
@@ -135,7 +136,8 @@ impl Expr {
                 let after_bb = context.append_basic_block(f, "afterloop");
 
                 // Conditional branch
-                builder.build_conditional_branch(end_cond, loop_bb, after_bb)
+                builder
+                    .build_conditional_branch(end_cond, loop_bb, after_bb)
                     .map_err(|e| format!("Failed to build cond branch: {}", e))?;
 
                 // Add backedge to PHI
