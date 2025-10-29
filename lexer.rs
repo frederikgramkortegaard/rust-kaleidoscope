@@ -1,5 +1,3 @@
-use std::cmp;
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Eof,
@@ -22,41 +20,173 @@ pub enum Token {
     For,
     In,
     Assign,
+    Binary,
+    Unary,
+    Bang,
+    Pipe,
+    Ampersand,
+    Caret,
+    Percent,
+    Dollar,
+    At,
+    Tilde,
 }
 
-pub struct LexerContext<'a> {
-    input: &'a str,
-    cursor: usize,
+pub struct LexerContext {
+    tokens: Vec<Token>,
+    position: usize,
 }
 
-impl<'a> LexerContext<'a> {
-    pub fn new(input: &'a str) -> Self {
-        LexerContext { input, cursor: 0 }
-    }
-
-    fn next_char(&mut self) -> Option<char> {
-        let ch = self.input[self.cursor..].chars().next()?;
-        self.cursor += ch.len_utf8();
-        Some(ch)
-    }
-
-    fn backtrack(&mut self, n: usize) {
-        self.cursor = cmp::max(self.cursor - n, 0);
-    }
-
-    pub fn peek(&mut self) -> Option<char> {
-        let c = self.next_char();
-        self.backtrack(1);
-        c
-    }
-
-    fn skip_to(&mut self, c: char) {
-        while let Some(cchar) = self.next_char() {
-            if cchar == c {
-                break;
-            }
+impl LexerContext {
+    pub fn new() -> Self {
+        LexerContext {
+            tokens: Vec::new(),
+            position: 0,
         }
     }
+
+    pub fn lex(&mut self, input: &str) {
+        let mut tokens = Vec::new();
+        let mut cursor = 0;
+
+        while cursor < input.len() {
+            let remaining = &input[cursor..];
+            let mut chars = remaining.chars();
+            let cchar = match chars.next() {
+                Some(c) => c,
+                None => break,
+            };
+
+            // Skip whitespace
+            if cchar.is_whitespace() {
+                cursor += cchar.len_utf8();
+                continue;
+            }
+
+            // Skip line comments
+            if cchar == '#' {
+                while cursor < input.len() {
+                    let c = input[cursor..].chars().next().unwrap();
+                    cursor += c.len_utf8();
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            // Single character tokens
+            let token = match cchar {
+                '(' => Some(Token::LParen),
+                ')' => Some(Token::RParen),
+                '+' => Some(Token::Plus),
+                ',' => Some(Token::Comma),
+                '-' => Some(Token::Minus),
+                '/' => Some(Token::Slash),
+                '*' => Some(Token::Star),
+                '>' => Some(Token::Greater),
+                '<' => Some(Token::Less),
+                '=' => Some(Token::Assign),
+                '!' => Some(Token::Bang),
+                '|' => Some(Token::Pipe),
+                '&' => Some(Token::Ampersand),
+                '^' => Some(Token::Caret),
+                '%' => Some(Token::Percent),
+                '$' => Some(Token::Dollar),
+                '@' => Some(Token::At),
+                '~' => Some(Token::Tilde),
+                _ => None,
+            };
+
+            if let Some(tok) = token {
+                tokens.push(tok);
+                cursor += cchar.len_utf8();
+                continue;
+            }
+
+            // Numbers
+            if cchar.is_ascii_digit() {
+                let start = cursor;
+                cursor += cchar.len_utf8();
+                let mut has_dot = false;
+
+                while cursor < input.len() {
+                    let c = input[cursor..].chars().next().unwrap();
+                    if c.is_ascii_digit() {
+                        cursor += c.len_utf8();
+                    } else if c == '.' && !has_dot {
+                        has_dot = true;
+                        cursor += c.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+
+                let nval = input[start..cursor].parse::<f64>().unwrap();
+                tokens.push(Token::Number(nval));
+                continue;
+            }
+
+            // Identifiers and keywords
+            if cchar.is_alphabetic() {
+                let start = cursor;
+                cursor += cchar.len_utf8();
+
+                while cursor < input.len() {
+                    let c = input[cursor..].chars().next().unwrap();
+                    if c.is_alphanumeric() {
+                        cursor += c.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+
+                let ident = &input[start..cursor];
+                let tok = match ident {
+                    "extern" => Token::Extern,
+                    "def" => Token::Def,
+                    "if" => Token::If,
+                    "else" => Token::Else,
+                    "then" => Token::Then,
+                    "for" => Token::For,
+                    "in" => Token::In,
+                    "binary" => Token::Binary,
+                    "unary" => Token::Unary,
+                    _ => {
+                        println!("{:?}", ident);
+                        Token::Identifier(ident.to_string())
+                    }
+                };
+                tokens.push(tok);
+                continue;
+            }
+
+            // Unknown character - skip it
+            cursor += cchar.len_utf8();
+        }
+
+        tokens.push(Token::Eof);
+        self.tokens = tokens;
+    }
+
+    pub fn next_token(&mut self) -> Token {
+        if self.position < self.tokens.len() {
+            let tok = self.tokens[self.position].clone();
+            self.position += 1;
+            tok
+        } else {
+            Token::Eof
+        }
+    }
+
+    pub fn peek_token(&self) -> Token {
+        if self.position < self.tokens.len() {
+            self.tokens[self.position].clone()
+        } else {
+            Token::Eof
+        }
+    }
+
     pub fn consume_assert_next_token(&mut self, expected: Token) -> Result<Token, String> {
         let tok = self.next_token();
         if std::mem::discriminant(&tok) == std::mem::discriminant(&expected) {
@@ -65,6 +195,7 @@ impl<'a> LexerContext<'a> {
             Err(format!("Expected {:?}, got {:?}", expected, tok))
         }
     }
+
     pub fn consume_opt_next_token(&mut self, expected: Token) -> Result<Option<Token>, String> {
         let tok = self.peek_token();
         if std::mem::discriminant(&tok) == std::mem::discriminant(&expected) {
@@ -73,87 +204,5 @@ impl<'a> LexerContext<'a> {
         } else {
             Ok(None)
         }
-    }
-
-    pub fn peek_token(&mut self) -> Token {
-        let cursor_state = self.cursor;
-        let tok = self.next_token();
-        self.cursor = cursor_state;
-        tok
-    }
-    pub fn next_token(&mut self) -> Token {
-        while let Some(cchar) = self.next_char() {
-            // Skip whitespace
-            if cchar.is_whitespace() {
-                continue;
-            }
-
-            // Skip line comments
-            if cchar == '#' {
-                self.skip_to('\n');
-                continue;
-            }
-
-            match cchar {
-                '(' => return Token::LParen,
-                ')' => return Token::RParen,
-                '+' => return Token::Plus,
-                ',' => return Token::Comma,
-                '-' => return Token::Minus,
-                '/' => return Token::Slash,
-                '*' => return Token::Star,
-                '>' => return Token::Greater,
-                '<' => return Token::Less,
-                '=' => return Token::Assign,
-                _ => {}
-            }
-
-            // Numbers
-            if cchar.is_ascii_digit() {
-                let start = self.cursor - 1;
-                let mut _rc = false;
-                while let Some(cchar) = self.next_char() {
-                    if cchar.is_ascii_digit() {
-                        // continue
-                    } else if cchar == '.' && !_rc {
-                        _rc = true;
-                    } else {
-                        self.backtrack(cchar.len_utf8());
-                        break;
-                    }
-                }
-
-                let nval = self.input[start..self.cursor].parse::<f64>().unwrap();
-                return Token::Number(nval);
-            }
-
-            // Identifiers
-            if cchar.is_alphabetic() {
-                let start = self.cursor - 1;
-                while let Some(cchar) = self.next_char() {
-                    if !cchar.is_alphanumeric() {
-                        self.backtrack(1);
-                        break;
-                    }
-                }
-
-                return match &self.input[start..self.cursor] {
-                    "extern" => Token::Extern,
-                    "def" => Token::Def,
-                    "if" => Token::If,
-                    "else" => Token::Else,
-                    "then" => Token::Then,
-                    "for" => Token::For,
-                    "in" => Token::In,
-                    ident => {
-                        println!("{:?}", ident);
-                        Token::Identifier(ident.to_string())
-                    }
-                };
-            }
-        }
-
-        // End of input
-        Token::Eof
     }
 }

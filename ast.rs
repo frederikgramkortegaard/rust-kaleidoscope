@@ -16,7 +16,7 @@ pub enum Expr {
     If {
         condition: Box<Expr>,
         then: Box<Expr>,
-        els: Box<Expr>
+        els: Box<Expr>,
     },
     For {
         ident: String,

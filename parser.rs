@@ -1,11 +1,38 @@
 use crate::ast::{Expr, Function};
 use crate::lexer::{LexerContext, Token};
 
+pub struct ParserContext {
+    pub functions: Vec<Function>,
+}
+
+impl ParserContext {
+    pub fn new() -> Self {
+        ParserContext {
+            functions: Vec::new(),
+        }
+    }
+
+    pub fn parse(&mut self, lexer: &mut LexerContext) -> Result<(), String> {
+        loop {
+            let tok = lexer.peek_token();
+            match tok {
+                Token::Def => self.functions.push(parse_function_definition(lexer)?),
+                Token::Extern => self.functions.push(parse_extern(lexer)?),
+                Token::Eof => break,
+
+                // Top level expression
+                _ => self.functions.push(parse_top_level_expression(lexer)?),
+            }
+        }
+        Ok(())
+    }
+}
+
 fn get_precedence(tok: &Token) -> i8 {
     match tok {
-        Token::Less | Token::Greater => 5,
-        Token::Plus | Token::Minus => 10,
-        Token::Star | Token::Slash => 20,
+        Token::Less | Token::Greater => 10,
+        Token::Plus | Token::Minus => 20,
+        Token::Star | Token::Slash => 40,
         _ => -1,
     }
 }
@@ -18,26 +45,17 @@ fn parse_binop_rhs(
 ) -> Result<Box<Expr>, String> {
     loop {
         // Peek the next token to see if it's a binary operator
-        let op = match lexer.peek_token() {
-            tok @ Token::Plus
-            | tok @ Token::Minus
-            | tok @ Token::Star
-            | tok @ Token::Slash
-            | tok @ Token::Less
-            | tok @ Token::Greater => tok,
-            _ => return Ok(lhs), // no more operators, return current LHS
-        };
-
-        let tok_prec = get_precedence(&op);
+        let peeked = lexer.peek_token();
+        let tok_prec = get_precedence(&peeked);
 
         // If this operator binds less tightly than the current expression, return LHS
         if tok_prec < expr_prec {
             return Ok(lhs);
         }
 
-        lexer.consume_assert_next_token(op.clone())?;
+        let op = lexer.next_token();
 
-        // Parse the primary RHS (just the next term, not a full expression)
+        // Parse the primary expression after the binary operator
         let mut rhs = Box::new(parse_primary(lexer)?);
 
         // Check the next operator's precedence for right-associativity
@@ -56,7 +74,7 @@ fn parse_binop_rhs(
     }
 }
 
-// Parse primary expressions: identifiers, numbers, parenthesized expressions, function calls
+// Parse primary expressions - identifiers, numbers, parens exprs, function calls
 fn parse_primary(lexer: &mut LexerContext) -> Result<Expr, String> {
     let token = lexer.peek_token();
 
@@ -209,15 +227,12 @@ fn parse_proto(lexer: &mut LexerContext) -> Result<Function, String> {
 
     let _ = lexer.consume_assert_next_token(Token::LParen)?; // Skip Starting parens
 
-    let mut args: Vec<String> = Vec::new();
-
+    let mut args = Vec::new();
     loop {
-        let tok = lexer.next_token();
-
-        match tok {
+        match lexer.next_token() {
             Token::Identifier(s) => args.push(s),
             Token::RParen => break,
-            _ => {
+            tok => {
                 return Err(format!(
                     "Unexpected token found while parsing args {:?}",
                     tok
@@ -233,21 +248,4 @@ fn parse_proto(lexer: &mut LexerContext) -> Result<Function, String> {
     };
     println!("Parsed function proto {:?}", f);
     Ok(f)
-}
-
-pub fn parse(lexer: &mut LexerContext) -> Result<Vec<Function>, String> {
-    let mut fvec: Vec<Function> = Vec::new();
-
-    loop {
-        let tok = lexer.peek_token();
-        match tok {
-            Token::Def => fvec.push(parse_function_definition(lexer)?),
-            Token::Extern => fvec.push(parse_extern(lexer)?),
-            Token::Eof => break,
-
-            // Top level expression
-            _ => fvec.push(parse_top_level_expression(lexer)?),
-        }
-    }
-    Ok(fvec)
 }
