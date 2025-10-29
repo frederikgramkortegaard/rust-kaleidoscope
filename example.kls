@@ -1,2 +1,0 @@
-def baz(x)
-  if x then 2 else 1;
