@@ -71,6 +71,52 @@ impl Expr {
         vars: &mut HashMap<String, BasicValueEnum<'lctx>>,
     ) -> CGResult<'lctx> {
         match self {
+            Expr::If {
+                condition,
+                then,
+                els,
+            } => {
+                // Setup Conditional Phi
+                let v = condition
+                    .codegen(context, builder, module, vars)?
+                    .unwrap()
+                    .into_float_value();
+                let condv = builder
+                    .build_float_compare(
+                        inkwell::FloatPredicate::ONE,
+                        v,
+                        context.f64_type().const_float(0.0),
+                        "ifcond",
+                    )
+                    .map_err(|e| format!("Failed to build condv: {}", e))?;
+
+                let f = builder.get_insert_block().unwrap().get_parent().unwrap();
+                let thenbb = context.append_basic_block(f, "then");
+                let elsebb = context.append_basic_block(f, "else");
+                let mergebb = context.append_basic_block(f, "ifcont");
+
+                builder
+                    .build_conditional_branch(condv, thenbb, elsebb)
+                    .map_err(|e| format!("Failed to build conditional branch: {}", e))?;
+
+                // Then Block
+                builder.position_at_end(thenbb);
+                let then_val = then.codegen(context, builder, module, vars)?.unwrap();
+                builder.build_unconditional_branch(mergebb).unwrap();
+
+                // Else Block
+                builder.position_at_end(elsebb);
+                let els_val = els.codegen(context, builder, module, vars)?.unwrap();
+                builder.build_unconditional_branch(mergebb).unwrap();
+
+                // Merge Bloock
+                builder.position_at_end(mergebb);
+                let phi = builder.build_phi(context.f64_type(), "iftmp").unwrap();
+                phi.add_incoming(&[(&then_val, thenbb), (&els_val, elsebb)]);
+
+                Ok(Some(phi.as_basic_value()))
+            }
+
             Expr::Call { identifier, args } => {
                 let callee: FunctionValue = module.get_function(identifier.as_str()).unwrap();
                 let mut cargs: Vec<BasicMetadataValueEnum> = Vec::new();

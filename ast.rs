@@ -13,6 +13,17 @@ pub enum Expr {
         identifier: String,
         args: Vec<Expr>,
     },
+    If {
+        condition: Box<Expr>,
+        then: Box<Expr>,
+        els: Box<Expr>
+    },
+    For {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        step: Box<Expr>,
+        body: Box<Expr>,
+    },
     None,
 }
 

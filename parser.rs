@@ -52,17 +52,33 @@ fn parse_binop_rhs(
 
 // Parse primary expressions: identifiers, numbers, parenthesized expressions, function calls
 fn parse_primary(lexer: &mut LexerContext) -> Result<Expr, String> {
-    let token = lexer.next_token();
+    let token = lexer.peek_token();
 
     match token {
         // Parens Expression - parse full expression inside
-        Token::LParen => parse_expression(lexer),
+        Token::LParen => {
+            lexer.consume_assert_next_token(Token::LParen)?;
+            parse_expression(lexer)
+        }
 
         // Number Literals
-        Token::Number(v) => Ok(Expr::Number(v)),
+        Token::Number(_) => {
+            if let Token::Number(v) = lexer.next_token() {
+                Ok(Expr::Number(v))
+            } else {
+                unreachable!("Peeked Number but got something else")
+            }
+        }
 
         // Either Expr::Variable or Expr::Call
-        Token::Identifier(name) => {
+        Token::Identifier(_) => {
+            // Consume the identifier to get its name
+            let name = if let Token::Identifier(n) = lexer.next_token() {
+                n
+            } else {
+                unreachable!("Peeked Identifier but got something else")
+            };
+
             let next = lexer.peek_token();
 
             // Expr::Call
@@ -94,6 +110,21 @@ fn parse_primary(lexer: &mut LexerContext) -> Result<Expr, String> {
             }
         }
 
+        // if-then-else
+        Token::If => {
+            lexer.consume_assert_next_token(Token::If)?;
+            let condition = Box::new(parse_expression(lexer)?);
+            lexer.consume_assert_next_token(Token::Then)?;
+            let then = Box::new(parse_expression(lexer)?);
+            lexer.consume_assert_next_token(Token::Else)?;
+            let els = Box::new(parse_expression(lexer)?);
+
+            Ok(Expr::If {
+                condition,
+                then,
+                els,
+            })
+        }
         _ => Err(String::from("Failed to parse primary expression")),
     }
 }

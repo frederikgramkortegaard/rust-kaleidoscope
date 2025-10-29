@@ -14,6 +14,11 @@ pub enum Token {
     Star,
     Slash,
     Comma,
+    If,
+    Else,
+    Then,
+    For,
+    In,
 }
 
 pub struct LexerContext<'a> {
@@ -129,6 +134,11 @@ impl<'a> LexerContext<'a> {
                 return match &self.input[start..self.cursor] {
                     "extern" => Token::Extern,
                     "def" => Token::Def,
+                    "if" => Token::If,
+                    "else" => Token::Else,
+                    "then" => Token::Then,
+                    "for" => Token::For,
+                    "in" => Token::In,
                     ident => {
                         println!("{:?}", ident);
                         Token::Identifier(ident.to_string())

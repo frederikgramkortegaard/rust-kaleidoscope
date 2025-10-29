@@ -1,17 +1,2 @@
-# This is a comment
-def foo()
-  3 + 2 / 6
-
-def bar()
-  3 * 2
-
-def baz()
-  999 /2 *1 + 2
-
-3 + 2
-
-def fizz(buzz)
-  2 + buzz
-
-
-7 / fizz(2)
+def baz(x)
+  if x then 2 else 1;
