@@ -25,6 +25,10 @@ pub enum Expr {
         step: Option<Box<Expr>>,
         body: Box<Expr>,
     },
+    Unary {
+        op: char,
+        left: Box<Expr>,
+    },
     None,
 }
 
@@ -33,4 +37,6 @@ pub struct Function {
     pub name: String,
     pub args: Vec<String>,
     pub body: Expr,
+    pub is_operator: bool,
+    pub precedence: Option<f64>,
 }

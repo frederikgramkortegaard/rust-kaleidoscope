@@ -5,31 +5,31 @@ pub enum Token {
     Extern,
     Identifier(String),
     Number(f64),
-    LParen,
-    RParen,
-    Plus,
-    Minus,
-    Star,
-    Slash,
-    Comma,
-    Less,
-    Greater,
+    LParen(char),
+    RParen(char),
+    Plus(char),
+    Minus(char),
+    Star(char),
+    Slash(char),
+    Comma(char),
+    Less(char),
+    Greater(char),
     If,
     Else,
     Then,
     For,
     In,
-    Assign,
-    Binary,
-    Unary,
-    Bang,
-    Pipe,
-    Ampersand,
-    Caret,
-    Percent,
-    Dollar,
-    At,
-    Tilde,
+    Assign(char),
+    Bang(char),
+    Pipe(char),
+    Ampersand(char),
+    Caret(char),
+    Percent(char),
+    Dollar(char),
+    At(char),
+    Tilde(char),
+    Binary(char),
+    Unary(char),
 }
 
 pub struct LexerContext {
@@ -77,28 +77,29 @@ impl LexerContext {
 
             // Single character tokens
             let token = match cchar {
-                '(' => Some(Token::LParen),
-                ')' => Some(Token::RParen),
-                '+' => Some(Token::Plus),
-                ',' => Some(Token::Comma),
-                '-' => Some(Token::Minus),
-                '/' => Some(Token::Slash),
-                '*' => Some(Token::Star),
-                '>' => Some(Token::Greater),
-                '<' => Some(Token::Less),
-                '=' => Some(Token::Assign),
-                '!' => Some(Token::Bang),
-                '|' => Some(Token::Pipe),
-                '&' => Some(Token::Ampersand),
-                '^' => Some(Token::Caret),
-                '%' => Some(Token::Percent),
-                '$' => Some(Token::Dollar),
-                '@' => Some(Token::At),
-                '~' => Some(Token::Tilde),
+                '(' => Some(Token::LParen(cchar)),
+                ')' => Some(Token::RParen(cchar)),
+                '+' => Some(Token::Plus(cchar)),
+                ',' => Some(Token::Comma(cchar)),
+                '-' => Some(Token::Minus(cchar)),
+                '/' => Some(Token::Slash(cchar)),
+                '*' => Some(Token::Star(cchar)),
+                '>' => Some(Token::Greater(cchar)),
+                '<' => Some(Token::Less(cchar)),
+                '=' => Some(Token::Assign(cchar)),
+                '!' => Some(Token::Bang(cchar)),
+                '|' => Some(Token::Pipe(cchar)),
+                '&' => Some(Token::Ampersand(cchar)),
+                '^' => Some(Token::Caret(cchar)),
+                '%' => Some(Token::Percent(cchar)),
+                '$' => Some(Token::Dollar(cchar)),
+                '@' => Some(Token::At(cchar)),
+                '~' => Some(Token::Tilde(cchar)),
                 _ => None,
             };
 
             if let Some(tok) = token {
+                println!("TOK: {:?}", tok);
                 tokens.push(tok);
                 cursor += cchar.len_utf8();
                 continue;
@@ -123,6 +124,7 @@ impl LexerContext {
                 }
 
                 let nval = input[start..cursor].parse::<f64>().unwrap();
+                println!("TOK: {:?}", Token::Number(nval));
                 tokens.push(Token::Number(nval));
                 continue;
             }
@@ -150,13 +152,26 @@ impl LexerContext {
                     "then" => Token::Then,
                     "for" => Token::For,
                     "in" => Token::In,
-                    "binary" => Token::Binary,
-                    "unary" => Token::Unary,
+                    "binary" => {
+                        if cursor >= input.len() {
+                            panic!("Expected a char after unary identifier")
+                        };
+                        cursor += 1;
+                        Token::Binary(input.chars().nth(cursor - 1).unwrap())
+                    }
+                    "unary" => {
+                        if cursor >= input.len() {
+                            panic!("Expected a char after unary identifier")
+                        };
+                        cursor += 1;
+                        Token::Unary(input.chars().nth(cursor - 1).unwrap())
+                    }
                     _ => {
                         println!("{:?}", ident);
                         Token::Identifier(ident.to_string())
                     }
                 };
+                println!("TOK: {:?}", tok);
                 tokens.push(tok);
                 continue;
             }
@@ -165,6 +180,7 @@ impl LexerContext {
             cursor += cchar.len_utf8();
         }
 
+        println!("TOK: {:?}", Token::Eof);
         tokens.push(Token::Eof);
         self.tokens = tokens;
     }

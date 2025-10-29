@@ -344,27 +344,27 @@ impl Expr {
                     .ok_or_else(|| "Right operand produced no value".to_string())?
                     .into_float_value();
                 let result = match op {
-                    Token::Plus => cg
+                    Token::Plus(_) => cg
                         .builder
                         .build_float_add(lhs, rhs, "addtmp")
                         .map_err(|e| format!("Failed to build add: {}", e))?
                         .into(),
-                    Token::Minus => cg
+                    Token::Minus(_) => cg
                         .builder
                         .build_float_sub(lhs, rhs, "subtmp")
                         .map_err(|e| format!("Failed to build sub: {}", e))?
                         .into(),
-                    Token::Star => cg
+                    Token::Star(_) => cg
                         .builder
                         .build_float_mul(lhs, rhs, "multmp")
                         .map_err(|e| format!("Failed to build mul: {}", e))?
                         .into(),
-                    Token::Slash => cg
+                    Token::Slash(_) => cg
                         .builder
                         .build_float_div(lhs, rhs, "divtmp")
                         .map_err(|e| format!("Failed to build div: {}", e))?
                         .into(),
-                    Token::Less => {
+                    Token::Less(_) => {
                         let cmp = cg
                             .builder
                             .build_float_compare(inkwell::FloatPredicate::ULT, lhs, rhs, "cmptmp")
@@ -374,7 +374,7 @@ impl Expr {
                             .map_err(|e| format!("Failed to convert bool to float: {}", e))?
                             .into()
                     }
-                    Token::Greater => {
+                    Token::Greater(_) => {
                         let cmp = cg
                             .builder
                             .build_float_compare(inkwell::FloatPredicate::UGT, lhs, rhs, "cmptmp")
