@@ -298,9 +298,10 @@ impl ParserContext {
                     }
                     _ => None,
                 };
-                operator_kind = Some(tok);
+                operator_kind = Some(tok.clone());
 
-                String::from(c)
+                let prefix = if matches!(tok, Token::Binary(_)) { "binary" } else { "unary" };
+                format!("{}{}", prefix, c)
             }
             // Otherwise it's just a regular function name
             Token::Identifier(s) => s,

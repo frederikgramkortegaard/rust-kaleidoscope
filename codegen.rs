@@ -254,6 +254,29 @@ impl Expr {
                 Ok(Some(cg.context.f64_type().const_float(0.0).into()))
             }
 
+            Expr::Unary { op, left } => {
+                let operand = left
+                    .codegen(cg)?
+                    .ok_or_else(|| "Operand produced no value".to_string())?
+                    .into_float_value();
+
+                let func_name = format!("unary{}", op);
+                let func = cg
+                    .module
+                    .get_function(&func_name)
+                    .ok_or_else(|| format!("Unknown unary operator: {}", func_name))?;
+
+                let args = [operand.into()];
+                let result = cg
+                    .builder
+                    .build_call(func, &args, "unop")
+                    .map_err(|e| format!("Failed to build call: {}", e))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("Function call didn't return a value")?;
+
+                Ok(Some(result))
+            }
             Expr::If {
                 condition,
                 then,
@@ -343,50 +366,106 @@ impl Expr {
                     .codegen(cg)?
                     .ok_or_else(|| "Right operand produced no value".to_string())?
                     .into_float_value();
+
                 let result = match op {
-                    Token::Plus(_) => cg
-                        .builder
-                        .build_float_add(lhs, rhs, "addtmp")
-                        .map_err(|e| format!("Failed to build add: {}", e))?
-                        .into(),
-                    Token::Minus(_) => cg
-                        .builder
-                        .build_float_sub(lhs, rhs, "subtmp")
-                        .map_err(|e| format!("Failed to build sub: {}", e))?
-                        .into(),
-                    Token::Star(_) => cg
-                        .builder
-                        .build_float_mul(lhs, rhs, "multmp")
-                        .map_err(|e| format!("Failed to build mul: {}", e))?
-                        .into(),
-                    Token::Slash(_) => cg
-                        .builder
-                        .build_float_div(lhs, rhs, "divtmp")
-                        .map_err(|e| format!("Failed to build div: {}", e))?
-                        .into(),
-                    Token::Less(_) => {
-                        let cmp = cg
-                            .builder
-                            .build_float_compare(inkwell::FloatPredicate::ULT, lhs, rhs, "cmptmp")
-                            .map_err(|e| format!("Failed to build less than: {}", e))?;
-                        cg.builder
-                            .build_unsigned_int_to_float(cmp, cg.context.f64_type(), "booltmp")
-                            .map_err(|e| format!("Failed to convert bool to float: {}", e))?
-                            .into()
+                    Token::Plus(c)
+                    | Token::Minus(c)
+                    | Token::Star(c)
+                    | Token::Slash(c)
+                    | Token::Less(c)
+                    | Token::Greater(c)
+                    | Token::Assign(c)
+                    | Token::Bang(c)
+                    | Token::Pipe(c)
+                    | Token::Ampersand(c)
+                    | Token::Caret(c)
+                    | Token::Percent(c)
+                    | Token::Dollar(c)
+                    | Token::At(c)
+                    | Token::Tilde(c) => {
+                        if let Some(func) = cg.module.get_function(&format!("binary{}", c)) {
+                            // User-defined binary operator - call the function
+                            let args = [lhs.into(), rhs.into()];
+                            cg.builder
+                                .build_call(func, &args, "binop")
+                                .map_err(|e| format!("Failed to build call: {}", e))?
+                                .try_as_basic_value()
+                                .left()
+                                .ok_or("Function call didn't return a value")?
+                        } else {
+                            // Not user-defined, check if it's a built-in operator
+                            match op {
+                                Token::Plus(_) => cg
+                                    .builder
+                                    .build_float_add(lhs, rhs, "addtmp")
+                                    .map_err(|e| format!("Failed to build add: {}", e))?
+                                    .into(),
+                                Token::Minus(_) => cg
+                                    .builder
+                                    .build_float_sub(lhs, rhs, "subtmp")
+                                    .map_err(|e| format!("Failed to build sub: {}", e))?
+                                    .into(),
+                                Token::Star(_) => cg
+                                    .builder
+                                    .build_float_mul(lhs, rhs, "multmp")
+                                    .map_err(|e| format!("Failed to build mul: {}", e))?
+                                    .into(),
+                                Token::Slash(_) => cg
+                                    .builder
+                                    .build_float_div(lhs, rhs, "divtmp")
+                                    .map_err(|e| format!("Failed to build div: {}", e))?
+                                    .into(),
+                                Token::Less(_) => {
+                                    let cmp = cg
+                                        .builder
+                                        .build_float_compare(
+                                            inkwell::FloatPredicate::ULT,
+                                            lhs,
+                                            rhs,
+                                            "cmptmp",
+                                        )
+                                        .map_err(|e| format!("Failed to build less than: {}", e))?;
+                                    cg.builder
+                                        .build_unsigned_int_to_float(
+                                            cmp,
+                                            cg.context.f64_type(),
+                                            "booltmp",
+                                        )
+                                        .map_err(|e| {
+                                            format!("Failed to convert bool to float: {}", e)
+                                        })?
+                                        .into()
+                                }
+                                Token::Greater(_) => {
+                                    let cmp = cg
+                                        .builder
+                                        .build_float_compare(
+                                            inkwell::FloatPredicate::UGT,
+                                            lhs,
+                                            rhs,
+                                            "cmptmp",
+                                        )
+                                        .map_err(|e| {
+                                            format!("Failed to build greater than: {}", e)
+                                        })?;
+                                    cg.builder
+                                        .build_unsigned_int_to_float(
+                                            cmp,
+                                            cg.context.f64_type(),
+                                            "booltmp",
+                                        )
+                                        .map_err(|e| {
+                                            format!("Failed to convert bool to float: {}", e)
+                                        })?
+                                        .into()
+                                }
+                                _ => {
+                                    return Err(format!("Unknown binary operator: {:?}", op));
+                                }
+                            }
+                        }
                     }
-                    Token::Greater(_) => {
-                        let cmp = cg
-                            .builder
-                            .build_float_compare(inkwell::FloatPredicate::UGT, lhs, rhs, "cmptmp")
-                            .map_err(|e| format!("Failed to build greater than: {}", e))?;
-                        cg.builder
-                            .build_unsigned_int_to_float(cmp, cg.context.f64_type(), "booltmp")
-                            .map_err(|e| format!("Failed to convert bool to float: {}", e))?
-                            .into()
-                    }
-                    _ => {
-                        return Err(format!("Unknown binary operator: {:?}", op));
-                    }
+                    _ => return Err(format!("Unknown token type: {:?}", op)),
                 };
                 Ok(Some(result))
             }
