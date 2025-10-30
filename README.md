@@ -2,7 +2,7 @@
 
 Rust implementation of the [Kaleidoscope language](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html) from the LLVM tutorial. This compiler lexes, parses, and generates LLVM IR via [Inkwell](https://github.com/TheDan64/inkwell), then JIT compiles and executes the result.
 
-The implementation covers the core language features from chapters 1-5 of the tutorial: functions, extern declarations, if/then/else, and for loops. It does not include optimization passes due to Inkwell API differences.
+The implementation covers the core language features from chapters 1-6 of the tutorial: functions, extern declarations, if/then/else, for loops, and user-defined operators. It does not include optimization passes due to Inkwell API differences.
 
 ## Build
 
@@ -72,6 +72,44 @@ afterloop:                                        ; preds = %loop
 Result: 0
 ```
 
+## Example: User-Defined Operators
+
+The `userdefined.kls` example demonstrates user-defined operators from Chapter 6 of the tutorial. It shows how to define custom unary and binary operators with specified precedence levels:
+
+```bash
+cargo run examples/userdefined.kls
+```
+
+**Source:**
+
+```kaleidoscope
+# Logical unary not.
+def unary!(v)
+  if v then
+    0
+  else
+    1
+
+# Define > with the same precedence as <.
+def binary> 10 (LHS RHS)
+  RHS < LHS
+
+# Binary "logical or", (note that it does not "short circuit")
+def binary| 5 (LHS RHS)
+  if LHS then
+    1
+  else if RHS then
+    1
+  else
+    0
+
+# Define = with slightly lower precedence than relationals.
+def binary= 9 (LHS RHS)
+  !(LHS < RHS | LHS > RHS)
+```
+
+User-defined operators are stored in the binary operator precedence table during parsing and compiled as function calls during code generation.
+
 ## Example: Mandelbrot Set
 
 The `mandel.kls` example is the full Mandelbrot set renderer from the tutorial. It demonstrates recursive functions, nested for loops, and calling extern functions to render ASCII graphics:
@@ -140,6 +178,7 @@ Result: 0
 ├── main.rs         # Entry point
 ├── examples/
 │   ├── for.kls
-│   └── mandel.kls
+│   ├── mandel.kls
+│   └── userdefined.kls
 └── Cargo.toml
 ```
