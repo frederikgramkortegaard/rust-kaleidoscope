@@ -2,7 +2,7 @@
 
 Rust implementation of the [Kaleidoscope language](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html) from the LLVM tutorial. This compiler lexes, parses, and generates LLVM IR via [Inkwell](https://github.com/TheDan64/inkwell), then JIT compiles and executes the result.
 
-The implementation covers the core language features from chapters 1-6 of the tutorial: functions, extern declarations, if/then/else, for loops, and user-defined operators. It does not include optimization passes due to Inkwell API differences.
+The implementation covers the core language features from chapters 1-7 of the tutorial: functions, extern declarations, if/then/else, for loops, user-defined operators, and mutable variables. It does not include optimization passes due to Inkwell API differences.
 
 ## Build
 
@@ -103,12 +103,96 @@ def binary| 5 (LHS RHS)
   else
     0
 
-# Define = with slightly lower precedence than relationals.
-def binary= 9 (LHS RHS)
+# Define ~ with slightly lower precedence than relationals.
+def binary~ 9 (LHS RHS)
   !(LHS < RHS | LHS > RHS)
 ```
 
 User-defined operators are stored in the binary operator precedence table during parsing and compiled as function calls during code generation.
+
+## Example: Mutable Variables
+
+The `mutate.kls` example demonstrates mutable variables from Chapter 7 of the tutorial. Variables are implemented using `alloca`/`load`/`store` instructions instead of SSA φ (phi) nodes:
+
+```bash
+cargo run examples/mutate.kls
+```
+
+**Source:**
+
+```kaleidoscope
+# Function to print a double.
+extern printd(x);
+
+# Define '$' for sequencing: as a low-precedence operator that ignores operands
+# and just returns the RHS.
+def binary$ 1 (x y) y;
+
+def test(x)
+  printd(x) $
+  x = 4 $
+  printd(x);
+
+test(123);
+```
+
+**Generated LLVM IR:**
+
+```llvm
+define double @test(double %x) {
+entry:
+  %x1 = alloca double, align 8
+  store double %x, ptr %x1, align 8
+  %x2 = load double, ptr %x1, align 8
+  %calltmp = call double @printd(double %x2)
+  store double 4.000000e+00, ptr %x1, align 8
+  %binop = call double @"binary$"(double %calltmp, double 4.000000e+00)
+  %x3 = load double, ptr %x1, align 8
+  %calltmp4 = call double @printd(double %x3)
+  %binop5 = call double @"binary$"(double %binop, double %calltmp4)
+  ret double %binop5
+}
+```
+
+**Output:**
+
+```
+123
+4
+Result: 0
+```
+
+The example uses the `$` sequencing operator to chain multiple statements. The variable `x` is mutated from 123 to 4, demonstrating that all variables are mutable and stored as stack allocations.
+
+### Local Variables with `var`
+
+The `itefib.kls` example demonstrates the `var` statement for declaring local variables with optional initializers. This allows iterative algorithms like Fibonacci:
+
+```bash
+cargo run examples/itefib.kls
+```
+
+**Source:**
+
+```kaleidoscope
+# Define '$' for sequencing: as a low-precedence operator that ignores operands
+# and just returns the RHS.
+def binary$ 1 (x y) y;
+
+# Iterative fib.
+def fibi(x)
+  var a = 1, b = 1, c in
+  (for i = 3, i < x in
+     c = a + b $
+     a = b $
+     b = c) $
+  b;
+
+# Call it.
+fibi(10);
+```
+
+The `var` statement declares local variables `a`, `b`, and `c` with optional initializers. The scope of these variables extends to the expression following `in`.
 
 ## Example: Mandelbrot Set
 
@@ -178,7 +262,9 @@ Result: 0
 ├── main.rs         # Entry point
 ├── examples/
 │   ├── for.kls
+│   ├── itefib.kls
 │   ├── mandel.kls
+│   ├── mutate.kls
 │   └── userdefined.kls
 └── Cargo.toml
 ```

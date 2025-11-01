@@ -10,7 +10,7 @@ use crate::parser::ParserContext;
 // Inkwell
 use inkwell::{
     builder::Builder, context::Context, module::Module, values::BasicMetadataValueEnum,
-    values::BasicValueEnum, values::FloatValue, values::FunctionValue,
+    values::BasicValueEnum, values::FloatValue, values::FunctionValue, values::PointerValue,
 };
 
 pub type CGResult<'ctx> = Result<Option<BasicValueEnum<'ctx>>, String>;
@@ -19,7 +19,7 @@ pub struct CodegenContext<'ctx> {
     pub context: &'ctx Context,
     pub builder: Builder<'ctx>,
     pub module: Module<'ctx>,
-    pub vars: HashMap<String, BasicValueEnum<'ctx>>,
+    pub vars: HashMap<String, PointerValue<'ctx>>,
     main_entry: inkwell::basic_block::BasicBlock<'ctx>,
     last_result: Option<BasicValueEnum<'ctx>>,
 }
@@ -43,6 +43,27 @@ impl<'ctx> CodegenContext<'ctx> {
             vars: HashMap::new(),
             main_entry,
             last_result: None,
+        }
+    }
+
+    pub fn create_entryblock_alloc(
+        &mut self,
+        f: &FunctionValue,
+        name: String,
+    ) -> Result<PointerValue<'ctx>, String> {
+        let entry = f.get_last_basic_block().unwrap();
+
+        let entry_builder = self.context.create_builder();
+
+        if let Some(first) = entry.get_first_instruction() {
+            entry_builder.position_before(&first);
+        } else {
+            entry_builder.position_at_end(entry);
+        }
+
+        match entry_builder.build_alloca(self.context.f64_type(), name.as_str()) {
+            Ok(r) => Ok(r),
+            Err(e) => Err(e.to_string()),
         }
     }
 
@@ -121,7 +142,7 @@ impl<'ctx> CodegenContext<'ctx> {
 }
 
 impl Function {
-    pub fn codegen<'ctx>(&self, cg: &mut CodegenContext<'ctx>) -> Result<(), String> {
+    pub fn codegen(&self, cg: &mut CodegenContext) -> Result<(), String> {
         // Check if function already exists (skip redefinition)
         if cg.module.get_function(self.name.as_str()).is_some() {
             return Ok(());
@@ -134,13 +155,6 @@ impl Function {
         let fn_ty = f64.fn_type(&param_types, false);
         let func = cg.module.add_function(self.name.as_str(), fn_ty, None);
 
-        // Set up parameters in the symbol table
-        cg.vars.clear();
-        for (p, name) in func.get_param_iter().zip(self.args.iter()) {
-            p.set_name(name);
-            cg.vars.insert(name.clone(), p);
-        }
-
         // Externs have no body - just the function declaration, so we're done
         if matches!(self.body, Expr::None) {
             return Ok(());
@@ -150,6 +164,14 @@ impl Function {
         let entry = cg.context.append_basic_block(func, "entry");
         cg.builder.position_at_end(entry);
 
+        // Set up parameters in the symbol table
+        cg.vars.clear();
+        for (p, name) in func.get_param_iter().zip(self.args.iter()) {
+            p.set_name(name);
+            let d = cg.create_entryblock_alloc(&func, name.clone())?;
+            cg.builder.build_store(d, p).map_err(|e| e.to_string())?;
+            cg.vars.insert(name.clone(), d);
+        }
         if let Some(ret_val) = self.body.codegen(cg)? {
             cg.builder
                 .build_return(Some(&ret_val))
@@ -173,12 +195,17 @@ impl Expr {
                 step,
                 body,
             } => {
+                let f = cg.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let alloc = cg.create_entryblock_alloc(&f, ident.clone())?;
+
                 // Emit start value
                 let start_val = start.codegen(cg)?.unwrap();
+                cg.builder
+                    .build_store(alloc, start_val)
+                    .map_err(|e| e.to_string())?;
 
-                // Get current function and preheader block
+                // Get current function
                 let f = cg.builder.get_insert_block().unwrap().get_parent().unwrap();
-                let preheader_bb = cg.builder.get_insert_block().unwrap();
 
                 // Create loop block and branch to it
                 let loop_bb = cg.context.append_basic_block(f, "loop");
@@ -186,14 +213,12 @@ impl Expr {
                     .build_unconditional_branch(loop_bb)
                     .map_err(|e| format!("Failed to branch to loop: {}", e))?;
 
-                // Position in loop block, then create PHI
+                // Position in loop block
                 cg.builder.position_at_end(loop_bb);
-                let phi = cg.builder.build_phi(cg.context.f64_type(), ident).unwrap();
-                phi.add_incoming(&[(&start_val, preheader_bb)]);
 
                 // Shadow the variable
                 let old_val = cg.vars.get(ident).cloned();
-                cg.vars.insert(ident.clone(), phi.as_basic_value());
+                cg.vars.insert(ident.clone(), alloc);
 
                 // Generate body
                 body.codegen(cg)?;
@@ -202,20 +227,25 @@ impl Expr {
                 let step_val = match step {
                     Some(s) => s.codegen(cg)?.unwrap(),
                     None => cg.context.f64_type().const_float(1.0).into(),
-                };
-
-                // Compute next iteration value
-                let next_var = cg
-                    .builder
-                    .build_float_add(
-                        phi.as_basic_value().into_float_value(),
-                        step_val.into_float_value(),
-                        "nextvar",
-                    )
-                    .map_err(|e| format!("Failed to build nextvar: {}", e))?;
+                }
+                .into_float_value();
 
                 // Compute end condition
                 let end_cond_val = end.codegen(cg)?.unwrap();
+
+                let cur_var = cg
+                    .builder
+                    .build_load(cg.context.f64_type(), alloc, ident)
+                    .map_err(|e| format!("Failed to build load: {}", e))?
+                    .into_float_value();
+                let next_var = cg
+                    .builder
+                    .build_float_add(cur_var, step_val, "nextvar")
+                    .map_err(|e| format!("Failed to build add: {}", e))?;
+                cg.builder
+                    .build_store(alloc, next_var)
+                    .map_err(|e| format!("Failed to build store: {}", e))?;
+
                 let end_cond = cg
                     .builder
                     .build_float_compare(
@@ -226,9 +256,6 @@ impl Expr {
                     )
                     .map_err(|e| format!("Failed to build endcond: {}", e))?;
 
-                // Get the block after body
-                let loop_end_bb = cg.builder.get_insert_block().unwrap();
-
                 // Create after-loop block
                 let after_bb = cg.context.append_basic_block(f, "afterloop");
 
@@ -236,9 +263,6 @@ impl Expr {
                 cg.builder
                     .build_conditional_branch(end_cond, loop_bb, after_bb)
                     .map_err(|e| format!("Failed to build cond branch: {}", e))?;
-
-                // Add backedge to PHI
-                phi.add_incoming(&[(&next_var, loop_end_bb)]);
 
                 // Position in after block
                 cg.builder.position_at_end(after_bb);
@@ -254,6 +278,34 @@ impl Expr {
                 Ok(Some(cg.context.f64_type().const_float(0.0).into()))
             }
 
+            Expr::Var { varnames, body } => {
+                let f = cg.builder.get_insert_block().unwrap().get_parent().unwrap();
+
+                let mut old_bindings: Vec<(String, PointerValue)> = Vec::new();
+                for (name, expr) in varnames {
+                    let init_val = match expr {
+                        Some(e) => e.codegen(cg)?.unwrap(),
+                        None => cg.context.f64_type().const_float(0.0).into(),
+                    };
+
+                    let alloc = cg.create_entryblock_alloc(&f, name.clone())?;
+                    cg.builder
+                        .build_store(alloc, init_val)
+                        .map_err(|e| e.to_string())?;
+
+                    if let Some(val) = cg.vars.get(name).cloned() {
+                        old_bindings.push((name.clone(), val));
+                    }
+                    cg.vars.insert(name.clone(), alloc);
+                }
+
+                let bval = body.codegen(cg)?.unwrap();
+                for  (name, val) in old_bindings {
+                    cg.vars.insert(name, val);
+                }
+
+                Ok(Some(bval))
+            }
             Expr::Unary { op, left } => {
                 let operand = left
                     .codegen(cg)?
@@ -355,13 +407,41 @@ impl Expr {
                     .vars
                     .get(name)
                     .ok_or_else(|| format!("Unknown variable: {}", name))?;
-                Ok(Some(*val))
+
+                match cg
+                    .builder
+                    .build_load(cg.context.f64_type(), *val, name.as_str())
+                {
+                    Ok(b) => Ok(Some(b)),
+                    Err(e) => Err(e.to_string()),
+                }
             }
             Expr::BinOp { left, op, right } => {
+                // For assignments we don't want to codegen the LHS so it's a special case
+
+                match (op, left.as_ref()) {
+                    // If it's an assignment, we don't want to generate the LHS, we just want to
+                    // generate the variable
+                    (Token::Assign(_), Expr::Variable(s)) => {
+                        let val = right
+                            .codegen(cg)?
+                            .ok_or_else(|| "Right operand produced no value".to_string())?
+                            .into_float_value();
+                        let var = cg.vars.get(s).cloned().unwrap();
+
+                        cg.builder
+                            .build_store(var, val)
+                            .map_err(|e| e.to_string())?;
+                        return Ok(Some(val.into()));
+                    }
+                    _ => {}
+                };
+
                 let lhs = left
                     .codegen(cg)?
                     .ok_or_else(|| "Left operand produced no value".to_string())?
                     .into_float_value();
+
                 let rhs = right
                     .codegen(cg)?
                     .ok_or_else(|| "Right operand produced no value".to_string())?
@@ -374,7 +454,6 @@ impl Expr {
                     | Token::Slash(c)
                     | Token::Less(c)
                     | Token::Greater(c)
-                    | Token::Assign(c)
                     | Token::Bang(c)
                     | Token::Pipe(c)
                     | Token::Ampersand(c)

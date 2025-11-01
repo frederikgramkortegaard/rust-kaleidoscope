@@ -12,6 +12,7 @@ impl ParserContext {
         let mut binop_precedence = HashMap::new();
 
         // Initialize built-in binary operators with their precedence
+        binop_precedence.insert('=', 2);
         binop_precedence.insert('<', 10);
         binop_precedence.insert('>', 10);
         binop_precedence.insert('+', 20);
@@ -52,13 +53,20 @@ impl ParserContext {
     fn get_precedence(&self, tok: &Token) -> i8 {
         // Extract the character from the token
         let op_char = match tok {
-            Token::Less(c) | Token::Greater(c)
-            | Token::Plus(c) | Token::Minus(c)
-            | Token::Star(c) | Token::Slash(c)
-            | Token::Assign(c) | Token::Bang(c)
-            | Token::Pipe(c) | Token::Ampersand(c)
-            | Token::Caret(c) | Token::Percent(c)
-            | Token::Dollar(c) | Token::At(c)
+            Token::Less(c)
+            | Token::Greater(c)
+            | Token::Plus(c)
+            | Token::Minus(c)
+            | Token::Star(c)
+            | Token::Slash(c)
+            | Token::Assign(c)
+            | Token::Bang(c)
+            | Token::Pipe(c)
+            | Token::Ampersand(c)
+            | Token::Caret(c)
+            | Token::Percent(c)
+            | Token::Dollar(c)
+            | Token::At(c)
             | Token::Tilde(c) => *c,
             _ => return -1,
         };
@@ -116,6 +124,43 @@ impl ParserContext {
                 let expr = self.parse_expression(lexer)?;
                 lexer.consume_assert_next_token(Token::RParen(')'))?;
                 Ok(expr)
+            }
+
+            // Local Var Decls
+            Token::Var => {
+                lexer.consume_assert_next_token(Token::Var)?;
+                let mut pairs: Vec<(String, Option<Expr>)> = Vec::new();
+
+                // Getr the list of identifiers we're declaring (and potentially initializing)
+                while matches!(lexer.peek_token(), Token::Identifier(_)) {
+                    let ident = match lexer.next_token() {
+                        Token::Identifier(s) => s,
+                        _ => unreachable!(),
+                    };
+
+                    let init = if matches!(lexer.peek_token(), Token::Assign(_)) {
+                        lexer.next_token();
+                        Some(self.parse_expression(lexer)?)
+                    } else {
+                        None
+                    };
+
+                    pairs.push((ident, init));
+
+                    if !matches!(lexer.peek_token(), Token::Comma(',')) {
+                        break;
+                    }
+                    lexer.next_token();
+                }
+
+                // Now we're ready to parse the body
+                lexer.consume_assert_next_token(Token::In)?;
+                let body = self.parse_expression(lexer)?;
+
+                Ok(Expr::Var {
+                    varnames: pairs,
+                    body: Box::new(body),
+                })
             }
 
             // Number Literals
@@ -184,11 +229,9 @@ impl ParserContext {
             }
 
             Token::For => {
-                println!("ooo  {:?}", lexer.peek_token());
                 lexer.consume_assert_next_token(Token::For)?;
-                println!("uuu  {:?}", lexer.peek_token());
 
-                let ident: String = match self.parse_expression(lexer)? {
+                let ident: String = match self.parse_primary(lexer)? {
                     Expr::Variable(s) => s,
                     x => Err(format!("Expected Identifier in for-loop but got {:?}", x))?,
                 };
@@ -236,7 +279,7 @@ impl ParserContext {
             | Token::Percent(c)
             | Token::Dollar(c)
             | Token::At(c)
-            | Token::Tilde(c)  => {
+            | Token::Tilde(c) => {
                 lexer.next_token();
                 Ok(Expr::Unary {
                     op: c,
@@ -249,9 +292,7 @@ impl ParserContext {
 
     // Parse full expressions with binary operators
     fn parse_expression(&self, lexer: &mut LexerContext) -> Result<Expr, String> {
-        println!("A");
         let expr = self.parse_unary(lexer)?;
-        println!("B {:?}", expr);
         self.parse_binop_rhs(0, Box::new(expr), lexer).map(|b| *b)
     }
 
@@ -300,7 +341,11 @@ impl ParserContext {
                 };
                 operator_kind = Some(tok.clone());
 
-                let prefix = if matches!(tok, Token::Binary(_)) { "binary" } else { "unary" };
+                let prefix = if matches!(tok, Token::Binary(_)) {
+                    "binary"
+                } else {
+                    "unary"
+                };
                 format!("{}{}", prefix, c)
             }
             // Otherwise it's just a regular function name

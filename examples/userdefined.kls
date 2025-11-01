@@ -18,6 +18,6 @@ def binary| 5 (LHS RHS)
   else
     0
 
-# Define = with slightly lower precedence than relationals.
-def binary= 9 (LHS RHS)
+# Define ~ with slightly lower precedence than relationals.
+def binary~ 9 (LHS RHS)
   !(LHS < RHS | LHS > RHS)

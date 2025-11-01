@@ -16,6 +16,7 @@ pub enum Token {
     Greater(char),
     If,
     Else,
+    Var,
     Then,
     For,
     In,
@@ -146,6 +147,7 @@ impl LexerContext {
                 let ident = &input[start..cursor];
                 let tok = match ident {
                     "extern" => Token::Extern,
+                    "var" => Token::Var,
                     "def" => Token::Def,
                     "if" => Token::If,
                     "else" => Token::Else,

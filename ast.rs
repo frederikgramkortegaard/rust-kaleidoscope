@@ -29,6 +29,10 @@ pub enum Expr {
         op: char,
         left: Box<Expr>,
     },
+    Var {
+        varnames: Vec<(String, Option<Expr>)>,
+        body: Box<Expr>,
+    },
     None,
 }
 
